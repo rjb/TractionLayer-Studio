@@ -3,12 +3,17 @@ export type WorkflowInput = {
   placeholder: string
 }
 
+export type ValidationRule =
+  | { type: 'url'; message: string }
+  | { type: 'domain'; domain: string; message: string }
+
 export type Workflow = {
   id: string
   name: string
   desc: string
   webhookUrl: string
   inputs: WorkflowInput[]
+  validations?: Record<string, ValidationRule[]>
 }
 
 export const WORKFLOWS: Workflow[] = [
@@ -20,6 +25,16 @@ export const WORKFLOWS: Workflow[] = [
     inputs: [
       { name: 'substackUrl', placeholder: 'Paste Substack draft URL...' },
     ],
+    validations: {
+      substackUrl: [
+        { type: 'url', message: 'Please enter a valid URL.' },
+        {
+          type: 'domain',
+          domain: 'kristybanks.substack.com',
+          message: 'URL must be from kristybanks.substack.com.',
+        },
+      ],
+    },
   },
   {
     id: 'meeting-summary',
@@ -40,6 +55,9 @@ export const WORKFLOWS: Workflow[] = [
     inputs: [
       { name: 'contentUrl', placeholder: 'Paste content URL to distribute...' },
     ],
+    validations: {
+      contentUrl: [{ type: 'url', message: 'Please enter a valid URL.' }],
+    },
   },
   {
     id: 'substack-to-blog-NEW',

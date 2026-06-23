@@ -2,8 +2,38 @@
 
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
-import { WORKFLOWS } from '@/lib/workflows'
+import { WORKFLOWS, ValidationRule } from '@/lib/workflows'
 import { runAutomation } from './actions'
+
+function validateField(workflowId: string, fieldName: string, value: string): string {
+  const workflow = WORKFLOWS.find((wf) => wf.id === workflowId)
+  const rules = workflow?.validations?.[fieldName]
+  if (!rules) return ''
+
+  for (const rule of rules) {
+    if ((rule as ValidationRule).type === 'url') {
+      try {
+        new URL(value)
+      } catch {
+        return rule.message
+      }
+    }
+
+    if ((rule as ValidationRule).type === 'domain') {
+      const domain = (rule as any).domain
+      try {
+        const url = new URL(value)
+        if (url.hostname !== domain) {
+          return rule.message
+        }
+      } catch {
+        return rule.message
+      }
+    }
+  }
+
+  return ''
+}
 
 export default function WorkflowPage() {
   const { id } = useParams()
@@ -39,7 +69,7 @@ export default function WorkflowPage() {
             setError(null)
             setStatus('executing')
 
-            const result = await runAutomation(formData, workflow.webhookUrl)
+            const result = await runAutomation(String(id), formData, workflow.webhookUrl)
 
             if (result.success) {
               setStatus('success')
@@ -57,6 +87,10 @@ export default function WorkflowPage() {
               placeholder={input.placeholder}
               className="w-full p-3 bg-slate-800 border border-slate-700 rounded-lg"
               required
+              onBlur={(e) => {
+                const message = validateField(String(id), input.name, e.target.value)
+                if (message) setError(message)
+              }}
             />
           ))}
           <button
