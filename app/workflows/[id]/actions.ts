@@ -20,14 +20,20 @@ function runFieldValidation(ruleType: string, value: string, rule: any) {
   }
 }
 
+export type AutomationResult = {
+  success: boolean
+  status?: 'success' | 'error'
+  message: string
+}
+
 export async function runAutomation(
   workflowId: string,
   formData: FormData,
   webhookUrl: string
-) {
+): Promise<AutomationResult> {
   const workflow = WORKFLOWS.find((wf) => wf.id === workflowId)
   if (!workflow) {
-    return { success: false, message: 'Workflow not found' }
+    return { success: false, status: 'error', message: 'Workflow not found' }
   }
 
   const body: Record<string, string> = {}
@@ -41,7 +47,7 @@ export async function runAutomation(
       try {
         runFieldValidation(rule.type, fieldValue, rule)
       } catch {
-        return { success: false, message: rule.message }
+        return { success: false, status: 'error', message: rule.message }
       }
     }
   }
@@ -56,14 +62,46 @@ export async function runAutomation(
       body: JSON.stringify(body),
     })
 
-    if (!response.ok) {
-      throw new Error(`Webhook failed with status ${response.status}`)
+    const payload = await response.json().catch(() => null)
+
+    if (!payload || typeof payload !== 'object') {
+      return {
+        success: false,
+        status: 'error',
+        message: 'Unexpected response from automation service.',
+      }
     }
 
-    return { success: true, message: '' }
+    const record = Array.isArray(payload) ? payload[0] : payload
+
+    if (!record || typeof record !== 'object') {
+      return {
+        success: false,
+        status: 'error',
+        message: 'Unexpected response from automation service.',
+      }
+    }
+
+    const statusField = 'status' in record ? String(record.status) : ''
+    const messageField = 'message' in record ? String(record.message) : 'Automation finished.'
+
+    if (statusField === 'error') {
+      return {
+        success: false,
+        status: 'error',
+        message: messageField,
+      }
+    }
+
+    return {
+      success: statusField === 'success',
+      status: statusField === 'success' ? 'success' : 'error',
+      message: messageField,
+    }
   } catch (error) {
     return {
       success: false,
+      status: 'error',
       message: error instanceof Error ? error.message : 'Automation failed. Please try again.',
     }
   }

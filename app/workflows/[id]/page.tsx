@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import { WORKFLOWS, ValidationRule } from '@/lib/workflows'
-import { runAutomation } from './actions'
+import { runAutomation, AutomationResult } from './actions'
 
 function validateField(workflowId: string, fieldName: string, value: string): string {
   const workflow = WORKFLOWS.find((wf) => wf.id === workflowId)
@@ -35,10 +35,19 @@ function validateField(workflowId: string, fieldName: string, value: string): st
   return ''
 }
 
+function getFeedbackStyle(status?: 'success' | 'error') {
+  if (status === 'success') {
+    return 'bg-green-900/50 border-green-700 text-green-100'
+  }
+
+  return 'bg-red-900/50 border-red-700 text-red-100'
+}
+
 export default function WorkflowPage() {
   const { id } = useParams()
   const [status, setStatus] = useState<'idle' | 'executing' | 'success'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<AutomationResult | null>(null)
 
   const workflow = WORKFLOWS.find((wf) => wf.id === id)
 
@@ -67,14 +76,16 @@ export default function WorkflowPage() {
         <form
           action={async (formData) => {
             setError(null)
+            setFeedback(null)
             setStatus('executing')
 
             const result = await runAutomation(String(id), formData, workflow.webhookUrl)
 
+            setFeedback(result)
+
             if (result.success) {
               setStatus('success')
             } else {
-              setError(result.message)
               setStatus('idle')
             }
           }}
@@ -101,6 +112,12 @@ export default function WorkflowPage() {
             {status === 'executing' ? 'Firing...' : 'Execute Workflow'}
           </button>
         </form>
+
+        {feedback && (
+          <div className={`mt-4 p-3 border rounded-lg ${getFeedbackStyle(feedback.status)}`}>
+            {feedback.message}
+          </div>
+        )}
       </div>
     </div>
   )
