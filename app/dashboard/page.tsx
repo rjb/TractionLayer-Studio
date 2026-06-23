@@ -4,13 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-// Hardcoded workflow registry for our MVP v1
-const WORKFLOWS = [
-  { id: 'substack-to-blog', name: 'Substack to Blog', desc: 'Converts Substack drafts to SEO blog posts.' },
-  { id: 'meeting-summary', name: 'Meeting Summarizer', desc: 'Transcribes audio to meeting minutes.' },
-  { id: 'content-distributor', name: 'Content Distributor', desc: 'Pushes content to multiple social channels.' },
-  { id: 'substack-to-blog-NEW', name: 'Substack to Blog NEW', desc: 'Converts Substack drafts to SEO blog posts.' }
-]
+import { WORKFLOWS } from '@/lib/workflows'
 
 export default function DashboardPage() {
   const router = useRouter()
