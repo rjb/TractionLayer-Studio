@@ -23,7 +23,7 @@ export const WORKFLOWS: Workflow[] = [
     desc: 'Converts Substack articles into SEO-optimized blog posts and publishes them to the production site (kristybanks.com/blog) and the staging site (kristybanks-staging.onrender.com/blog)',
     webhookUrl: 'https://n8n.tractionlayer.com/webhook/d1254f5d-332f-404a-bd57-38edaea4389f',
     inputs: [
-      { name: 'substackUrl', placeholder: 'Paste Substack draft URL...' },
+      { name: 'substackUrl', placeholder: 'Paste Substack article URL here...' },
     ],
     validations: {
       substackUrl: [
