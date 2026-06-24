@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import { WORKFLOWS, ValidationRule } from '@/lib/workflows'
 import { runAutomation, AutomationResult } from './actions'
 
@@ -55,6 +56,10 @@ export default function WorkflowPage() {
     return (
       <div className="min-h-screen bg-slate-950 p-8 text-white">
         <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl">
+          <nav className="text-sm text-slate-400 mb-6">
+            <Link href="/workflows" className="hover:text-white transition-colors">&lsaquo; Workflows</Link>
+          </nav>
+
           <h1 className="text-2xl font-bold mb-6">Workflow not found</h1>
         </div>
       </div>
@@ -64,6 +69,10 @@ export default function WorkflowPage() {
   return (
     <div className="min-h-screen bg-slate-950 p-8 text-white">
       <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl">
+        <nav className="text-sm text-slate-400 mb-6">
+          <Link href="/workflows" className="hover:text-white transition-colors">&lsaquo; Workflows</Link>
+        </nav>
+
         <h1 className="text-2xl font-bold mb-6 capitalize">{workflow.name}</h1>
         <p className="text-slate-400 mb-6">{workflow.desc}</p>
 
