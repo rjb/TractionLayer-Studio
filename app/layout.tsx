@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "TractionLayer Studio",
-  description: "Workflow automation dashboard",
+  description: "Workflow automation studio",
 };
 
 export default function RootLayout({
