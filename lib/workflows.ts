@@ -13,6 +13,7 @@ export type Workflow = {
   desc: string
   webhookUrl: string
   inputs: WorkflowInput[]
+  actionVerb: string
   validations?: Record<string, ValidationRule[]>
 }
 
@@ -25,6 +26,7 @@ export const WORKFLOWS: Workflow[] = [
     inputs: [
       { name: 'substackUrl', placeholder: 'Paste Substack article URL here...' },
     ],
+    actionVerb: 'Publish to Blog',
     validations: {
       substackUrl: [
         { type: 'url', message: 'Please enter a valid URL.' },
@@ -46,6 +48,7 @@ export const WORKFLOWS: Workflow[] = [
       { name: 'attendees', placeholder: 'Comma-separated attendee names' },
       { name: 'topics', placeholder: 'Key topics to highlight' },
     ],
+    actionVerb: 'Summarize Meeting',
   },
   {
     id: 'content-distributor',
@@ -55,6 +58,7 @@ export const WORKFLOWS: Workflow[] = [
     inputs: [
       { name: 'contentUrl', placeholder: 'Paste content URL to distribute...' },
     ],
+    actionVerb: 'Distribute Content',
     validations: {
       contentUrl: [{ type: 'url', message: 'Please enter a valid URL.' }],
     },
@@ -68,5 +72,6 @@ export const WORKFLOWS: Workflow[] = [
       { name: 'substackUrl', placeholder: 'Paste Substack draft URL...' },
       { name: 'tone', placeholder: 'e.g. Professional, casual, witty' },
     ],
+    actionVerb: 'Stage Markdown',
   },
 ]

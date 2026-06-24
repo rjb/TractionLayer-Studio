@@ -74,7 +74,11 @@ export default function WorkflowPage() {
         )}
 
         <form
-          action={async (formData) => {
+          onSubmit={async (e) => {
+            e.preventDefault()
+
+            const formData = new FormData(e.currentTarget)
+
             setError(null)
             setFeedback(null)
             setStatus('executing')
@@ -109,7 +113,9 @@ export default function WorkflowPage() {
             className="bg-blue-600 p-3 rounded-lg font-bold hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={status === 'executing'}
           >
-            {status === 'executing' ? 'Firing...' : 'Execute Workflow'}
+            {status === 'executing'
+              ? 'Processing...'
+              : workflow.actionVerb || 'Run Automation'}
           </button>
         </form>
 
