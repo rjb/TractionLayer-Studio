@@ -26,7 +26,7 @@ export default function WorkflowsPage() {
     <div className="min-h-screen bg-slate-950 p-8 text-white">
       <div className="max-w-5xl mx-auto">
         <header className="mb-12">
-          <h1 className="text-3xl font-bold">Workflows</h1>
+          <h1 className="text-3xl font-bold">AI Workflows</h1>
           <p className="text-slate-400">Welcome back, {user.email}</p>
         </header>
 
