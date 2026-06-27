@@ -71,45 +71,9 @@ export const WORKFLOWS: Workflow[] = [
     },
   },
   {
-    id: 'meeting-summary',
-    name: 'Meeting Summarizer',
-    desc: 'Transcribes audio to meeting minutes.',
-    webhookUrl: 'https://n8n.tractionlayer.com/webhook/meeting-summary',
-    inputs: [
-      { name: 'recordingUrl', placeholder: 'Paste meeting recording URL...' },
-      { name: 'attendees', placeholder: 'Comma-separated attendee names' },
-      { name: 'topics', placeholder: 'Key topics to highlight' },
-    ],
-    actionVerb: 'Summarize Meeting',
-  },
-  {
-    id: 'content-distributor',
-    name: 'Content Distributor',
-    desc: 'Pushes content to multiple social channels.',
-    webhookUrl: 'https://n8n.tractionlayer.com/webhook/content-distributor',
-    inputs: [
-      { name: 'contentUrl', placeholder: 'Paste content URL to distribute...' },
-    ],
-    actionVerb: 'Distribute Content',
-    validations: {
-      contentUrl: [{ type: 'url', message: 'Please enter a valid URL.' }],
-    },
-  },
-  {
-    id: 'substack-to-blog-NEW',
-    name: 'Substack to Blog NEW',
-    desc: 'Converts Substack drafts to SEO blog posts.',
-    webhookUrl: 'https://n8n.tractionlayer.com/webhook/substack-to-blog-new',
-    inputs: [
-      { name: 'substackUrl', placeholder: 'Paste Substack draft URL...' },
-      { name: 'tone', placeholder: 'e.g. Professional, casual, witty' },
-    ],
-    actionVerb: 'Stage Markdown',
-  },
-  {
-    id: 'lateral-catalyst',
-    name: 'The Lateral Catalyst',
-    desc: 'Turn any long-form video into bespoke developmental concepts.',
+    id: 'youtube-insight-miner',
+    name: 'YouTube Insight Miner',
+    desc: 'Extract actionable talking points from YouTube videos tailored to your audience.',
     webhookUrl: 'https://n8n.tractionlayer.com/webhook/e5e407d6-b98d-43af-971e-02cf9169d6dc',
     inputs: [
       {
@@ -117,7 +81,7 @@ export const WORKFLOWS: Workflow[] = [
         placeholder: 'Paste YouTube video URL or 11-character ID here...',
       },
     ],
-    actionVerb: 'Generate Concepts',
+    actionVerb: 'Mine Insights',
     authType: 'x-n8n-secret',
     validations: {
       url: [
