@@ -53,7 +53,7 @@ export const WORKFLOWS: Workflow[] = [
   {
     id: 'substack-to-blog',
     name: 'Substack to Blog',
-    desc: 'Converts Substack articles into SEO-optimized blog posts and publishes them to the production site (kristybanks.com/blog) and the staging site (kristybanks-staging.onrender.com/blog)',
+    desc: 'Converts a Substack article into SEO-optimized blog post and publishes to the production site (kristybanks.com/blog) and the staging site (kristybanks-staging.onrender.com/blog)',
     webhookUrl: 'https://n8n.tractionlayer.com/webhook/d1254f5d-332f-404a-bd57-38edaea4389f',
     inputs: [
       { name: 'substackUrl', placeholder: 'Paste Substack article URL here...' },
