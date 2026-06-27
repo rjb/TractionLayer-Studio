@@ -1,29 +1,46 @@
 'use server'
 
-import { WORKFLOWS } from '@/lib/workflows'
+import { WORKFLOWS, ValidationRule, isValidYouTubeUrlOrId } from '@/lib/workflows'
 
 function getFieldRules(workflowId: string, fieldName: string) {
   const workflow = WORKFLOWS.find((wf) => wf.id === workflowId)
   return workflow?.validations?.[fieldName] ?? []
 }
 
-function runFieldValidation(ruleType: string, value: string, rule: any) {
+function runFieldValidation(ruleType: string, value: string, rule: ValidationRule) {
   if (ruleType === 'url') {
     new URL(value)
   }
 
-  if (ruleType === 'domain' && rule.domain) {
-    const url = new URL(value)
-    if (url.hostname !== rule.domain) {
+  if (ruleType === 'domain') {
+    const domainRule = rule as Extract<ValidationRule, { type: 'domain' }>
+    if (domainRule.domain) {
+      const url = new URL(value)
+      if (url.hostname !== domainRule.domain) {
+        throw new Error(rule.message)
+      }
+    }
+  }
+
+  if (ruleType === 'youtube') {
+    if (!isValidYouTubeUrlOrId(value)) {
       throw new Error(rule.message)
     }
   }
+}
+
+export type StructuredConcept = {
+  concept_name: string
+  core_speaker_argument: string
+  the_universal_human_truth: string
 }
 
 export type AutomationResult = {
   success: boolean
   status?: 'success' | 'error'
   message: string
+  markdown_output?: string
+  structured_concepts?: StructuredConcept[]
 }
 
 export async function runAutomation(
@@ -53,12 +70,19 @@ export async function runAutomation(
   }
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    if (workflow.authType === 'bearer') {
+      headers['Authorization'] = `Bearer ${process.env.N8N_MASTER_SECRET}`
+    } else {
+      headers['X-N8N-Secret'] = process.env.N8N_MASTER_SECRET!
+    }
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-N8N-Secret': process.env.N8N_MASTER_SECRET!,
-      },
+      headers,
       body: JSON.stringify(body),
     })
 
@@ -82,10 +106,27 @@ export async function runAutomation(
       }
     }
 
-    const statusField = 'status' in record ? String(record.status) : ''
-    const messageField = 'message' in record ? String(record.message) : 'Automation finished.'
+    const rawStatus = 'status' in record ? String(record.status) : ''
+    const normalizedStatus = rawStatus.toLowerCase()
+    const isSuccess = ['success', 'succeeded', 'ok'].includes(normalizedStatus)
+    const isError = ['error', 'failed'].includes(normalizedStatus)
 
-    if (statusField === 'error') {
+    const messageField =
+      'message' in record && typeof record.message === 'string'
+        ? record.message
+        : isSuccess
+          ? 'Execution completed.'
+          : 'Automation finished.'
+    const markdown_output =
+      'markdown_output' in record && typeof record.markdown_output === 'string'
+        ? record.markdown_output
+        : undefined
+    const structured_concepts =
+      'structured_concepts' in record && Array.isArray(record.structured_concepts)
+        ? record.structured_concepts
+        : undefined
+
+    if (isError) {
       return {
         success: false,
         status: 'error',
@@ -94,15 +135,20 @@ export async function runAutomation(
     }
 
     return {
-      success: statusField === 'success',
-      status: statusField === 'success' ? 'success' : 'error',
+      success: isSuccess,
+      status: isSuccess ? 'success' : 'error',
       message: messageField,
+      markdown_output,
+      structured_concepts,
     }
   } catch (error) {
     return {
       success: false,
       status: 'error',
-      message: error instanceof Error ? error.message : 'Automation failed. Please try again.',
+      message:
+        error instanceof Error
+          ? error.message
+          : 'Automation failed. Please try again.',
     }
   }
 }

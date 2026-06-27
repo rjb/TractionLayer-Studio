@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 import { WORKFLOWS } from '@/lib/workflows'
 
 export default function WorkflowsPage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -38,7 +39,7 @@ export default function WorkflowsPage() {
               className="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1"
             >
               <h2 className="text-lg font-semibold mb-2">{wf.name}</h2>
-              <p className="text-sm text-slate-400">{wf.text || wf.desc}</p>
+              <p className="text-sm text-slate-400">{wf.desc}</p>
             </div>
           ))}
         </div>
