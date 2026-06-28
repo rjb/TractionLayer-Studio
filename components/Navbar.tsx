@@ -8,7 +8,7 @@ export default function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
 
-  if (pathname === '/login' || pathname === '/') {
+  if (pathname === '/login' || pathname === '/' || pathname === '/account-pending') {
     return null
   }
 
