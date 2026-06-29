@@ -1,27 +1,24 @@
-'use client'
-
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import type { User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
-
+import { redirect } from 'next/navigation'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { WORKFLOWS } from '@/lib/workflows'
 
-export default function WorkflowsPage() {
-  const router = useRouter()
-  const [user, setUser] = useState<User | null>(null)
+export default async function WorkflowsPage() {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        router.push('/login')
-      } else {
-        setUser(session.user)
-      }
-    })
-  }, [router])
+  if (userError || !user) {
+    redirect('/login')
+  }
 
-  if (!user) return <div className="p-8 text-white">Loading...</div>
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile || profile.role !== 'APPROVED') {
+    redirect('/account-pending')
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 p-8 text-white">
@@ -33,14 +30,14 @@ export default function WorkflowsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {WORKFLOWS.map((wf) => (
-            <div
+            <a
               key={wf.id}
-              onClick={() => router.push(`/workflows/${wf.id}`)}
-              className="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1"
+              href={`/workflows/${wf.id}`}
+              className="block bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1"
             >
               <h2 className="text-lg font-semibold mb-2">{wf.name}</h2>
               <p className="text-sm text-slate-400">{wf.desc}</p>
-            </div>
+            </a>
           ))}
         </div>
       </div>

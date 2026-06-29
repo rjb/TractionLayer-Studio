@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { NextResponse } from 'next/server'
+import { createRouteHandlerSupabaseClient } from '@/lib/supabase-server'
+import { type NextRequest, NextResponse } from 'next/server'
 
 function getPublicOrigin(request: Request, fallbackOrigin: string): string {
   const forwardedHost = request.headers.get('x-forwarded-host')
@@ -10,16 +10,18 @@ function getPublicOrigin(request: Request, fallbackOrigin: string): string {
   return fallbackOrigin
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const origin = getPublicOrigin(request, requestUrl.origin)
 
   if (code) {
-    const supabase = await createServerSupabaseClient()
+    const response = NextResponse.redirect(`${origin}/workflows`)
+    const supabase = createRouteHandlerSupabaseClient(request, response)
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+
     if (!error) {
-      return NextResponse.redirect(`${origin}/workflows`)
+      return response
     }
   }
 
