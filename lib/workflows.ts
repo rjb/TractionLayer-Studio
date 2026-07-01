@@ -1,6 +1,7 @@
-export type WorkflowInput = {
+export type WorkflowInputField = {
   name: string
-  placeholder: string
+  placeholder?: string
+  type?: string
 }
 
 export type ValidationRule =
@@ -8,15 +9,22 @@ export type ValidationRule =
   | { type: 'domain'; domain: string; message: string }
   | { type: 'youtube'; message: string }
 
-export type Workflow = {
+export type WorkflowAuthType = 'none' | 'x-n8n-secret' | 'bearer'
+
+// Mirrors the public.workflows table.
+export type WorkflowRow = {
   id: string
+  client_tag: string
   name: string
-  desc: string
-  webhookUrl: string
-  inputs: WorkflowInput[]
-  actionVerb: string
-  authType?: 'x-n8n-secret' | 'bearer'
-  validations?: Record<string, ValidationRule[]>
+  description: string | null
+  webhook_url: string
+  http_method: string
+  auth_type: WorkflowAuthType
+  action_verb: string
+  inputs: WorkflowInputField[]
+  validations: Record<string, ValidationRule[]>
+  is_active: boolean
+  created_at: string
 }
 
 export function isValidYouTubeUrlOrId(value: string): boolean {
@@ -49,47 +57,70 @@ export function isValidYouTubeUrlOrId(value: string): boolean {
   return false
 }
 
-export const WORKFLOWS: Workflow[] = [
-  {
-    id: 'substack-to-blog',
-    name: 'Substack to Blog',
-    desc: 'Converts a Substack article into SEO-optimized blog post and publishes to the production site (kristybanks.com/blog) and the staging site (kristybanks-staging.onrender.com/blog)',
-    webhookUrl: 'https://n8n.tractionlayer.com/webhook/d1254f5d-332f-404a-bd57-38edaea4389f',
-    inputs: [
-      { name: 'substackUrl', placeholder: 'Paste Substack article URL here...' },
-    ],
-    actionVerb: 'Publish to Blog',
-    validations: {
-      substackUrl: [
-        { type: 'url', message: 'Please enter a valid URL.' },
-        {
-          type: 'domain',
-          domain: 'kristybanks.substack.com',
-          message: 'URL must be from kristybanks.substack.com.',
-        },
-      ],
-    },
-  },
-  {
-    id: 'youtube-insight-miner',
-    name: 'YouTube Insight Miner',
-    desc: 'Extract actionable talking points from YouTube videos tailored to your audience.',
-    webhookUrl: 'https://n8n.tractionlayer.com/webhook/e5e407d6-b98d-43af-971e-02cf9169d6dc',
-    inputs: [
-      {
-        name: 'url',
-        placeholder: 'Paste YouTube video URL or 11-character ID here...',
-      },
-    ],
-    actionVerb: 'Mine Insights',
-    authType: 'x-n8n-secret',
-    validations: {
-      url: [
-        {
-          type: 'youtube',
-          message: 'Please enter a valid YouTube URL or 11-character video ID.',
-        },
-      ],
-    },
-  },
-]
+// Runs a single validation rule against a value, returning an error message
+// or an empty string. Shared between the client-side onBlur check and the
+// server-side check in the execute-workflow proxy, so the two never drift.
+export function runValidationRule(rule: ValidationRule, value: string): string {
+  if (rule.type === 'url') {
+    try {
+      new URL(value)
+    } catch {
+      return rule.message
+    }
+    return ''
+  }
+
+  if (rule.type === 'domain') {
+    try {
+      const url = new URL(value)
+      if (url.hostname !== rule.domain) {
+        return rule.message
+      }
+    } catch {
+      return rule.message
+    }
+    return ''
+  }
+
+  if (rule.type === 'youtube') {
+    if (!isValidYouTubeUrlOrId(value)) {
+      return rule.message
+    }
+    return ''
+  }
+
+  return ''
+}
+
+// The declarative contract every workflow webhook must return, and the only
+// shape /api/execute-workflow and the frontend ever look at. Scalable to new
+// kinds ('table', 'file', ...) without touching call sites that don't care.
+export type WorkflowOutput =
+  | { kind: 'markdown'; data: string }
+  | { kind: 'error'; message: string }
+
+export function isWorkflowOutput(value: unknown): value is WorkflowOutput {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+
+  if (record.kind === 'markdown') return typeof record.data === 'string'
+  if (record.kind === 'error') return typeof record.message === 'string'
+
+  return false
+}
+
+export function validateField(
+  workflow: Pick<WorkflowRow, 'validations'>,
+  fieldName: string,
+  value: string
+): string {
+  const rules = workflow.validations?.[fieldName]
+  if (!rules) return ''
+
+  for (const rule of rules) {
+    const message = runValidationRule(rule, value)
+    if (message) return message
+  }
+
+  return ''
+}

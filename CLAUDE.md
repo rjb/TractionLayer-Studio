@@ -36,16 +36,21 @@ This is a client portal for TractionLayer: authenticated users trigger n8n autom
 - Login flow: `app/login/page.tsx` triggers `signInWithOAuth({ provider: 'google' })` → Google → `app/auth/callback/route.ts` exchanges the code for a session and redirects to `/workflows`. The callback honors `x-forwarded-host`/`x-forwarded-proto` to build the redirect origin correctly behind a proxy/load balancer.
 - Authorization is checked **twice, redundantly, in different layers**, both against `profiles.role === 'APPROVED'`:
   1. `proxy.ts` gates `/workflows/:path*` at the edge (redirects to `/login` if unauthenticated, `/account-pending` if not approved).
-  2. `app/workflows/page.tsx` re-checks the same thing server-side on render (Proxy is documented as an optimistic check only, not a full authz solution — see the vendored docs above).
-- Note: `profiles.role` is checked throughout the app code, but is **not** part of the schema documented below (which only lists `client_tag`). Treat the CLAUDE.md schema section as the multi-tenant target state, not necessarily what every route currently reads/writes — verify against actual Supabase state if behavior seems inconsistent.
+  2. `app/workflows/page.tsx` and `app/workflows/[id]/page.tsx` re-check the same thing server-side on render (Proxy is documented as an optimistic check only, not a full authz solution — see the vendored docs above).
+  3. `app/api/execute-workflow/route.ts` checks it again independently (an API route is reachable directly, not just via the gated pages), and returns 401/403 JSON rather than redirecting.
+- `lib/profile.ts` (`getProfile(supabase, userId)`) is the shared helper for fetching `{ role, client_tag }` — used by all three of the call sites above so the shape stays in one place.
 
-### Workflows: hardcoded today, DB-backed is the target state
+### Workflows: DB-backed, per-tenant via `client_tag`
 
-- `lib/workflows.ts` currently defines `WORKFLOWS: Workflow[]` as a **hardcoded array** (webhook URLs, input fields, validation rules, auth type all live in code).
-- The `workflows` table described in the Supabase schema section below represents where this is migrating to — same shape, but per-tenant (`client_tag`) and editable without a deploy. When adding workflow CRUD or making workflows dynamic, this is the target to build toward (current branch: `stu-49-phase-2-full-stack-execution-engine`).
-- `app/workflows/page.tsx` lists workflows; `app/workflows/[id]/page.tsx` renders the dynamic form (client component) and posts via `app/workflows/[id]/actions.ts` (`'use server'`).
-- `runAutomation()` in `actions.ts` POSTs form data as JSON to `workflow.webhookUrl`, auth'd with `N8N_MASTER_SECRET` as either `Authorization: Bearer` or `X-N8N-Secret` depending on `workflow.authType`. It normalizes the n8n response (`status`/`message`/`markdown_output`/`structured_concepts`) into a single `AutomationResult` shape consumed by the UI.
-- Field validation (`url` / `domain` / `youtube`) is defined declaratively per-workflow in `validations` and run **twice**: client-side `onBlur` in the page component, and again server-side inside the Server Action before the webhook call — keep both in sync if you touch validation logic.
+- `lib/workflows.ts` holds the shared types (`WorkflowRow`, `WorkflowInputField`, `ValidationRule`) mirroring the `workflows` table, plus `validateField()` — the single implementation of per-field validation (`url` / `domain` / `youtube`) shared by the client-side `onBlur` check and the server-side check in the execute-workflow route, so they can't drift.
+- **Output contract**: `WorkflowOutput` (also in `lib/workflows.ts`) is the *only* shape a workflow webhook may return — `{ kind: 'markdown', data: string }` or `{ kind: 'error', message: string }`. There is no per-workflow output type or per-workflow rendering branch anywhere in the frontend; `WorkflowForm.tsx` does one `switch` on `kind`. If you're tempted to add a bespoke field to a webhook response (e.g. a list of structured objects), the convention is to format it into the `data` markdown string on the n8n side instead, not to add a new `kind` or a new frontend branch for one workflow. New `kind`s (e.g. `table`, `file`) are added deliberately, project-wide, not per-workflow. See the n8n contract doc for the exact wire format n8n developers must return.
+- `lib/workflows-data.ts` is the only place that queries the `workflows` table (`getActiveWorkflowsForClientTag`, `getActiveWorkflowForClientTag`) — both always filter by `client_tag` and `is_active` at the query level, not just in application logic, so cross-tenant access isn't possible even if a caller forgets to double-check.
+- `app/workflows/page.tsx` (Server Component) fetches the signed-in user's `client_tag` via `getProfile`, then lists their active workflows.
+- `app/workflows/[id]/page.tsx` (Server Component) fetches the single workflow scoped to that `client_tag`, then renders `app/workflows/[id]/WorkflowForm.tsx` (Client Component) with it as a prop. The form does **not** know the webhook URL or any secret — it only knows the workflow's `id`, `inputs`, and `validations`.
+- **Execution proxy**: the form POSTs `{ workflowId, formData }` as JSON to `app/api/execute-workflow/route.ts`. That route re-verifies auth + tenant ownership, re-runs field validation server-side, looks up `webhook_url` / `http_method` / `auth_type` from the DB row, injects `N8N_MASTER_SECRET` as `Authorization: Bearer` or `X-N8N-Secret` depending on `auth_type`, and forwards the request. The webhook URL and secret never reach the browser.
+- The route is an **opaque pass-through for the webhook's response body** — it checks the response matches `WorkflowOutput` (via `isWorkflowOutput()`) and relays it verbatim; it never reads or branches on workflow-specific fields inside it. Everything before that (auth, tenant ownership, field validation) is proxy-level guardrail logic, not output-schema logic, and stays.
+- The route maps outcomes to HTTP status: `401` not signed in, `403` not approved, `400` bad payload or failed field validation, `404` workflow not found/inactive/wrong tenant, `502` webhook unreachable, returned a non-`WorkflowOutput` shape, or itself returned `kind: 'error'`, `200` on `kind: 'markdown'`. The client (`WorkflowForm.tsx`) still ultimately trusts `body.kind`, not `response.ok`, to decide what to render — the status codes are informational/for logging, not the source of truth for the UI.
+- This intentionally replaces the old `'use server'` Server Action approach (`app/workflows/[id]/actions.ts`, now deleted) — a dedicated Route Handler was chosen so the proxy boundary is a normal authenticated API endpoint rather than something only reachable from one specific form.
 
 ### `/v1/*` routes: separate API surface for n8n to call back into
 
@@ -57,24 +62,40 @@ This is a client portal for TractionLayer: authenticated users trigger n8n autom
 
 `.env.example` lists `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `N8N_MASTER_SECRET`. `API_MASTER_SECRET` is also required (used by the `/v1/*` routes) but missing from the example file.
 
-## Supabase Database Schema (Target State)
-The application uses a flat multi-tenant model mapped by `client_tag`. Below are the load-bearing tables relevant for full-stack feature development:
+## Supabase Database Schema
+
+The application uses a flat multi-tenant model ("High-Leverage Solo") mapped by `client_tag`. Below are the load-bearing tables relevant for full-stack feature development. This supersedes an earlier draft of this doc that omitted `profiles.role`/`full_name` and used a `uuid` for `workflows.id` — the schema below is what the app code (`proxy.ts`, `lib/profile.ts`, `lib/workflows.ts`) actually targets, with `id` as `text` to match human-readable slugs like `substack-to-blog`.
 
 ### profiles
-- `id` (uuid, primary key, references auth.users)
-- `email` (text)
-- `client_tag` (text, default 'unassigned') - Links users to their workspace/workflows.
+```sql
+create table public.profiles (
+  id uuid references auth.users not null primary key,
+  full_name text,
+  role text not null default 'UNAPPROVED', -- 'UNAPPROVED' | 'APPROVED'
+  email text,
+  client_tag text not null default 'unassigned',
+  created_at timestamptz default now()
+);
+```
+`role` gates access (see Auth & access gating above); `client_tag` scopes which `workflows` rows a user can see/execute.
 
 ### workflows
-- `id` (uuid, primary key)
-- `client_tag` (text, default 'unassigned')
-- `name` (text, not null)
-- `description` (text, nullable)
-- `webhook_url` (text, not null)
-- `http_method` (text, default 'POST')
-- `auth_type` (text, default 'none') - Enum values: 'none' | 'x-n8n-secret' | 'bearer'
-- `action_verb` (text, default 'Execute')
-- `inputs` (jsonb, default '[]'::jsonb) - Array of form fields: Array<{name: string, placeholder?: string, type?: string}>
-- `validations` (jsonb, default '{}'::jsonb) - Schema layout: Record<string, Array<{type: string, message: string, domain?: string}>>
-- `is_active` (boolean, default true)
-- `created_at` (timestamptz)
+```sql
+create table public.workflows (
+  id text primary key,
+  client_tag text not null default 'unassigned',
+  name text not null,
+  description text,
+  webhook_url text not null,
+  http_method text default 'POST',
+  auth_type text default 'none', -- 'none' | 'x-n8n-secret' | 'bearer'
+  action_verb text default 'Execute',
+  inputs jsonb default '[]'::jsonb,   -- Array<{name: string, placeholder?: string, type?: string}>
+  validations jsonb default '{}'::jsonb, -- Record<string, Array<{type: string, message: string, domain?: string}>>
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+```
+Mirrored as `WorkflowRow` in `lib/workflows.ts`. Only `is_active = true` rows scoped to the caller's `client_tag` are ever fetched (`lib/workflows-data.ts`) — there is no app-level path that reads another tenant's workflows.
+
+New tables need both a `grant select ... to authenticated` and an RLS policy scoping rows to `client_tag` — a `grant` without RLS exposes every tenant's rows to every signed-in user, and RLS enabled with no matching `grant` fails loudly with "permission denied for table X" (not a silent empty result) the first time a Server Component queries it.
