@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
 import {
   WorkflowRow,
   WorkflowOutput,
@@ -40,7 +41,9 @@ function MarkdownOutput({ data }: { data: string }) {
         <h2 className="text-lg font-semibold text-slate-100">Result</h2>
         <CopyButton text={data} />
       </div>
-      <pre className="whitespace-pre-wrap text-sm text-slate-300 font-mono">{data}</pre>
+      <div className="prose prose-invert prose-sm max-w-none prose-headings:text-slate-100 prose-a:text-blue-400">
+        <ReactMarkdown>{data}</ReactMarkdown>
+      </div>
     </div>
   )
 }
