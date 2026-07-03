@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { signOut } from '@/lib/auth-client'
 
 export default function Navbar() {
   const pathname = usePathname()
@@ -13,7 +13,7 @@ export default function Navbar() {
   }
 
   async function handleSignOut() {
-    await supabase.auth.signOut()
+    await signOut()
     router.push('/login')
   }
 

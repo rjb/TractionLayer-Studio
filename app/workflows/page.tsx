@@ -1,30 +1,27 @@
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { getProfile } from '@/lib/profile'
+import { headers } from 'next/headers'
+import { auth } from '@/lib/auth'
 import { getActiveWorkflowsForClientTag } from '@/lib/workflows-data'
 
 export default async function WorkflowsPage() {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  const session = await auth.api.getSession({ headers: await headers() })
 
-  if (userError || !user) {
+  if (!session) {
     redirect('/login')
   }
 
-  const profile = await getProfile(supabase, user.id)
-
-  if (!profile || profile.role !== 'APPROVED') {
+  if (session.user.role !== 'APPROVED') {
     redirect('/account-pending')
   }
 
-  const workflows = await getActiveWorkflowsForClientTag(supabase, profile.client_tag)
+  const workflows = await getActiveWorkflowsForClientTag(session.user.client_tag)
 
   return (
     <div className="min-h-screen bg-slate-950 p-8 text-white">
       <div className="max-w-5xl mx-auto">
         <header className="mb-12">
           <h1 className="text-3xl font-bold">AI Workflows</h1>
-          <p className="text-slate-400">Welcome back, {user.email}</p>
+          <p className="text-slate-400">Welcome back, {session.user.email}</p>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

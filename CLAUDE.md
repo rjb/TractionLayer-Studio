@@ -26,26 +26,28 @@ This project pins `next@16.2.9`, which postdates your training data and has real
 
 This is a client portal for TractionLayer: authenticated users trigger n8n automation workflows (e.g. "Substack to Blog", "YouTube Insight Miner") through forms, and the result is rendered back in the UI.
 
-### Auth & access gating (Supabase, Google OAuth only)
+### Auth & access gating (Better-Auth, Drizzle/MySQL, Google OAuth only)
 
-- `lib/supabase.ts` — browser client (`createBrowserClient`), used in client components like `app/login/page.tsx` and `components/Navbar.tsx`.
-- `lib/supabase-server.ts` — three server-side client constructors, each for a different cookie-handling context:
-  - `createServerSupabaseClient()` — Server Components/Actions, reads `next/headers` cookies.
-  - `createRouteHandlerSupabaseClient(request, response)` — Route Handlers (e.g. `app/auth/callback/route.ts`).
-  - `createProxySupabaseClient(request, response)` — `proxy.ts` only; writes refreshed cookies onto both the request and response.
-- Login flow: `app/login/page.tsx` triggers `signInWithOAuth({ provider: 'google' })` → Google → `app/auth/callback/route.ts` exchanges the code for a session and redirects to `/workflows`. The callback honors `x-forwarded-host`/`x-forwarded-proto` to build the redirect origin correctly behind a proxy/load balancer.
-- Authorization is checked **twice, redundantly, in different layers**, both against `profiles.role === 'APPROVED'`:
-  1. `proxy.ts` gates `/workflows/:path*` at the edge (redirects to `/login` if unauthenticated, `/account-pending` if not approved).
+- `lib/db.ts` — the Drizzle MySQL connection (`drizzle-orm/mysql2`), reads `DATABASE_URL`. Every server-side DB access in the app goes through this one instance.
+- `lib/auth.ts` — the `betterAuth()` instance. Wires the Drizzle adapter (`better-auth/adapters/drizzle`, `provider: "mysql"`) to `lib/db.ts`, enables `emailAndPassword` and `socialProviders.google` (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), and declares `user.additionalFields` for `role` and `client_tag` — these two are the whole authorization model and live directly on the better-auth `user` row (see schema below), not in a separate `profiles` table. Both are `input: false`, so they can't be self-assigned at signup; an admin/backend process has to set them.
+- `app/api/auth/[...all]/route.ts` — the Better-Auth catch-all route (`toNextJsHandler(auth)`). Handles sign-in, sign-out, session reads, and the Google OAuth callback (`/api/auth/callback/google`) — there is no bespoke `app/auth/callback/route.ts` the way there was under Supabase; better-auth owns the entire OAuth round trip once `signIn.social` kicks it off.
+- `lib/auth-client.ts` — the browser-side client (`createAuthClient` from `better-auth/react`), re-exporting `signIn`, `signOut`, `useSession`. Used in client components like `app/login/page.tsx` (`signIn.social({ provider: 'google', callbackURL: '/workflows' })`, `useSession()`) and `components/Navbar.tsx` (`signOut()`).
+- Session reads are **always** `auth.api.getSession({ headers })`, but the headers source differs by context — this is a Next.js constraint, not a style choice:
+  - Server Components / Route Handlers: `await headers()` from `next/headers` (works inside the App Router request scope).
+  - `proxy.ts`: `request.headers` directly — `next/headers`'s `headers()` is *not* available in Proxy, since Proxy runs before the React Server render scope is established. Passing `request.headers` is also what upstream better-auth's own Next.js proxy/middleware guide recommends.
+- `proxy.ts` doing a real DB-backed session lookup (rather than just checking for a cookie's presence) only works because **Next.js 16 defaults Proxy to the Node.js runtime**, not Edge (this changed from Next 15's Edge default — see `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`, "Runtime" section). `mysql2` is a Node.js TCP driver and cannot run on the Edge runtime; if this project's Proxy runtime ever changes, the session check in `proxy.ts` has to move to a cookie-presence-only check instead.
+- Authorization is checked **twice, redundantly, in different layers**, both against `session.user.role === 'APPROVED'`:
+  1. `proxy.ts` gates `/workflows/:path*` (redirects to `/login` if unauthenticated, `/account-pending` if not approved).
   2. `app/workflows/page.tsx` and `app/workflows/[id]/page.tsx` re-check the same thing server-side on render (Proxy is documented as an optimistic check only, not a full authz solution — see the vendored docs above).
   3. `app/api/execute-workflow/route.ts` checks it again independently (an API route is reachable directly, not just via the gated pages), and returns 401/403 JSON rather than redirecting.
-- `lib/profile.ts` (`getProfile(supabase, userId)`) is the shared helper for fetching `{ role, client_tag }` — used by all three of the call sites above so the shape stays in one place.
+- There is no `getProfile()`-style helper anymore — `role` and `client_tag` come back directly on `session.user` from `auth.api.getSession()`, since they're better-auth `additionalFields` rather than a joined table, so every call site reads them inline.
 
 ### Workflows: DB-backed, per-tenant via `client_tag`
 
 - `lib/workflows.ts` holds the shared types (`WorkflowRow`, `WorkflowInputField`, `ValidationRule`) mirroring the `workflows` table, plus `validateField()` — the single implementation of per-field validation (`url` / `domain` / `youtube`) shared by the client-side `onBlur` check and the server-side check in the execute-workflow route, so they can't drift.
 - **Output contract**: `WorkflowOutput` (also in `lib/workflows.ts`) is the *only* shape a workflow webhook may return — `{ kind: 'markdown', data: string }` or `{ kind: 'error', message: string }`. There is no per-workflow output type or per-workflow rendering branch anywhere in the frontend; `WorkflowForm.tsx` does one `switch` on `kind`. If you're tempted to add a bespoke field to a webhook response (e.g. a list of structured objects), the convention is to format it into the `data` markdown string on the n8n side instead, not to add a new `kind` or a new frontend branch for one workflow. New `kind`s (e.g. `table`, `file`) are added deliberately, project-wide, not per-workflow. See the n8n contract doc for the exact wire format n8n developers must return.
-- `lib/workflows-data.ts` is the only place that queries the `workflows` table (`getActiveWorkflowsForClientTag`, `getActiveWorkflowForClientTag`) — both always filter by `client_tag` and `is_active` at the query level, not just in application logic, so cross-tenant access isn't possible even if a caller forgets to double-check.
-- `app/workflows/page.tsx` (Server Component) fetches the signed-in user's `client_tag` via `getProfile`, then lists their active workflows.
+- `lib/workflows-data.ts` is the only place that queries the `workflows` table (`getActiveWorkflowsForClientTag`, `getActiveWorkflowForClientTag`, both via Drizzle against `lib/db/schema/workflows.ts`) — both always filter by `client_tag` and `is_active` at the query level, not just in application logic, so cross-tenant access isn't possible even if a caller forgets to double-check. Each also maps the Drizzle row (camelCase columns) back to the `WorkflowRow` shape (snake_case fields) that the rest of the app expects, so `lib/workflows.ts` didn't need to change shape across the migration.
+- `app/workflows/page.tsx` (Server Component) reads `client_tag` off `session.user`, then lists their active workflows.
 - `app/workflows/[id]/page.tsx` (Server Component) fetches the single workflow scoped to that `client_tag`, then renders `app/workflows/[id]/WorkflowForm.tsx` (Client Component) with it as a prop. The form does **not** know the webhook URL or any secret — it only knows the workflow's `id`, `inputs`, and `validations`.
 - **Execution proxy**: the form POSTs `{ workflowId, formData }` as JSON to `app/api/execute-workflow/route.ts`. That route re-verifies auth + tenant ownership, re-runs field validation server-side, looks up `webhook_url` / `http_method` / `auth_type` from the DB row, injects `N8N_MASTER_SECRET` as `Authorization: Bearer` or `X-N8N-Secret` depending on `auth_type`, and forwards the request. The webhook URL and secret never reach the browser.
 - The route is an **opaque pass-through for the webhook's response body** — it checks the response matches `WorkflowOutput` (via `isWorkflowOutput()`) and relays it verbatim; it never reads or branches on workflow-specific fields inside it. Everything before that (auth, tenant ownership, field validation) is proxy-level guardrail logic, not output-schema logic, and stays.
@@ -60,42 +62,48 @@ This is a client portal for TractionLayer: authenticated users trigger n8n autom
 
 ### Environment variables
 
-`.env.example` lists `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `N8N_MASTER_SECRET`. `API_MASTER_SECRET` is also required (used by the `/v1/*` routes) but missing from the example file.
+`.env.example` lists `DATABASE_URL` (MySQL connection string, consumed by both `lib/db.ts` and `drizzle.config.ts`), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `N8N_MASTER_SECRET`. `API_MASTER_SECRET` is also required (used by the `/v1/*` routes) but missing from the example file. `BETTER_AUTH_SECRET` isn't optional the way it might look — `betterAuth()` throws at startup if it's unset, in dev as well as production.
 
-## Supabase Database Schema
+## MySQL Database Schema (Drizzle + Better-Auth)
 
-The application uses a flat multi-tenant model ("High-Leverage Solo") mapped by `client_tag`. Below are the load-bearing tables relevant for full-stack feature development. This supersedes an earlier draft of this doc that omitted `profiles.role`/`full_name` and used a `uuid` for `workflows.id` — the schema below is what the app code (`proxy.ts`, `lib/profile.ts`, `lib/workflows.ts`) actually targets, with `id` as `text` to match human-readable slugs like `substack-to-blog`.
+The app was migrated off Supabase (both auth and Postgres) onto Better-Auth + Drizzle + MySQL. It keeps a flat multi-tenant model ("High-Leverage Solo") mapped by `client_tag`, same as before — only the storage layer and the auth provider changed.
 
-### profiles
-```sql
-create table public.profiles (
-  id uuid references auth.users not null primary key,
-  full_name text,
-  role text not null default 'UNAPPROVED', -- 'UNAPPROVED' | 'APPROVED'
-  email text,
-  client_tag text not null default 'unassigned',
-  created_at timestamptz default now()
-);
+### Schema files are split, deliberately
+
+- `lib/db/schema/auth.ts` — **generated**, not hand-edited. Owned by `npx @better-auth/cli generate --output lib/db/schema/auth.ts`, which reads `lib/auth.ts` and **overwrites this file wholesale** on every run ("Schema was overwritten successfully"). Defines `user`, `session`, `account`, `verification` (+ relations).
+- `lib/db/schema/workflows.ts` — **hand-written** app data, kept in its own file for exactly one reason: if it lived in the same file as the generated auth tables, the next `better-auth generate` run would silently delete it.
+- `lib/db/schema/index.ts` — re-exports both. `lib/db.ts` and `lib/auth.ts` both import `* as schema from '@/lib/db/schema'` (the directory, resolved via `index.ts`) rather than either file directly, so neither has to know about the split.
+- `drizzle.config.ts` points `schema` at the glob `./lib/db/schema/*.ts` (not a single file) so `drizzle-kit push`/`generate` (migrations) picks up both.
+- After editing `lib/auth.ts` (e.g. adding another `additionalFields` entry or social provider), the loop is always: `npx @better-auth/cli generate --output lib/db/schema/auth.ts` → `npx drizzle-kit push`. Both CLIs need env vars that live in `.env.local`, which they don't auto-load (only `.env` is loaded by default) — run them as `node --env-file=.env.local node_modules/.bin/<tool> ...` or equivalent.
+
+### user (`lib/db/schema/auth.ts`, generated)
+Standard better-auth columns (`id`, `name`, `email`, `emailVerified`, `image`, timestamps) plus two `additionalFields` declared in `lib/auth.ts`:
+```ts
+role: text("role").default("UNAPPROVED").notNull()        // 'UNAPPROVED' | 'APPROVED'
+client_tag: text("client_tag").default("unassigned").notNull()
 ```
-`role` gates access (see Auth & access gating above); `client_tag` scopes which `workflows` rows a user can see/execute.
+`role` gates access (see Auth & access gating above); `client_tag` scopes which `workflows` rows a user can see/execute. Both are `input: false` in `lib/auth.ts` — never settable by the user themselves via sign-up or the client SDK, only by direct DB write. There is no separate `profiles` table the way Supabase had one; this **is** the profile.
 
-### workflows
-```sql
-create table public.workflows (
-  id text primary key,
-  client_tag text not null default 'unassigned',
-  name text not null,
-  description text,
-  webhook_url text not null,
-  http_method text default 'POST',
-  auth_type text default 'none', -- 'none' | 'x-n8n-secret' | 'bearer'
-  action_verb text default 'Execute',
-  inputs jsonb default '[]'::jsonb,   -- Array<{name: string, placeholder?: string, type?: string}>
-  validations jsonb default '{}'::jsonb, -- Record<string, Array<{type: string, message: string, domain?: string}>>
-  is_active boolean default true,
-  created_at timestamptz default now()
-);
+### session / account / verification (`lib/db/schema/auth.ts`, generated)
+Standard better-auth tables — session tokens, linked OAuth accounts (Google), and email verification/reset tokens. Not hand-modified; if you need something here, change `lib/auth.ts` and regenerate rather than editing the file directly.
+
+### workflows (`lib/db/schema/workflows.ts`, hand-written)
+```ts
+export const workflows = mysqlTable("workflows", {
+  id: varchar("id", { length: 255 }).primaryKey(),        // human-readable slug, e.g. "substack-to-blog"
+  clientTag: varchar("client_tag", { length: 255 }).notNull().default("unassigned"),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  webhookUrl: text("webhook_url").notNull(),
+  httpMethod: varchar("http_method", { length: 16 }).default("POST"),
+  authType: mysqlEnum("auth_type", ["none", "x-n8n-secret", "bearer"]).default("none"),
+  actionVerb: varchar("action_verb", { length: 64 }).default("Execute"),
+  inputs: json("inputs").$type<WorkflowInputField[]>().notNull().default([]),
+  validations: json("validations").$type<Record<string, ValidationRule[]>>().notNull().default({}),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at", { fsp: 3 }).defaultNow().notNull(),
+}, (table) => [index("workflows_clientTag_idx").on(table.clientTag)])
 ```
-Mirrored as `WorkflowRow` in `lib/workflows.ts`. Only `is_active = true` rows scoped to the caller's `client_tag` are ever fetched (`lib/workflows-data.ts`) — there is no app-level path that reads another tenant's workflows.
+Drizzle/MySQL columns are camelCase; `lib/workflows-data.ts` maps rows back to the snake_case `WorkflowRow` shape (`lib/workflows.ts`) the rest of the app expects, so nothing above the data layer had to change across the migration. Only `is_active = true` rows scoped to the caller's `client_tag` are ever fetched, filtered at the query level (not just in application logic) — there is no app-level path that reads another tenant's workflows.
 
-New tables need both a `grant select ... to authenticated` and an RLS policy scoping rows to `client_tag` — a `grant` without RLS exposes every tenant's rows to every signed-in user, and RLS enabled with no matching `grant` fails loudly with "permission denied for table X" (not a silent empty result) the first time a Server Component queries it.
+There is no RLS layer anymore (MySQL, not Postgres) — `client_tag` scoping in `lib/workflows-data.ts`'s `WHERE` clauses is the *only* tenant boundary for this table now. Any new query against `workflows` (or a future table following the same multi-tenant pattern) must filter by `client_tag` itself; there's no database-level backstop like Supabase's RLS policies used to provide.

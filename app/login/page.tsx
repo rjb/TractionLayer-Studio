@@ -1,28 +1,25 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { signIn, useSession } from '@/lib/auth-client'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const { data: session } = useSession()
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.push('/workflows')
-      }
-    })
-  }, [router])
+    if (session) {
+      router.push('/workflows')
+    }
+  }, [session, router])
 
   const handleGoogleLogin = async () => {
     setLoading(true)
-    await supabase.auth.signInWithOAuth({
+    await signIn.social({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+      callbackURL: '/workflows',
     })
   }
 

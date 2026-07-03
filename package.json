@@ -9,8 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.0",
-    "@supabase/supabase-js": "^2.108.2",
     "better-auth": "^1.6.23",
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.2",

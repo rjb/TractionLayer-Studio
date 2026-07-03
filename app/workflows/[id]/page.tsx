@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { getProfile } from '@/lib/profile'
+import { headers } from 'next/headers'
+import { auth } from '@/lib/auth'
 import { getActiveWorkflowForClientTag } from '@/lib/workflows-data'
 import WorkflowForm from './WorkflowForm'
 
@@ -12,20 +12,17 @@ export default async function WorkflowPage({
 }) {
   const { id } = await params
 
-  const supabase = await createServerSupabaseClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  const session = await auth.api.getSession({ headers: await headers() })
 
-  if (userError || !user) {
+  if (!session) {
     redirect('/login')
   }
 
-  const profile = await getProfile(supabase, user.id)
-
-  if (!profile || profile.role !== 'APPROVED') {
+  if (session.user.role !== 'APPROVED') {
     redirect('/account-pending')
   }
 
-  const workflow = await getActiveWorkflowForClientTag(supabase, id, profile.client_tag)
+  const workflow = await getActiveWorkflowForClientTag(id, session.user.client_tag)
 
   if (!workflow) {
     return (
