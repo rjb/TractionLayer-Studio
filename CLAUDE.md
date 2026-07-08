@@ -73,8 +73,15 @@ The app was migrated off Supabase (both auth and Postgres) onto Better-Auth + Dr
 - `lib/db/schema/auth.ts` — **generated**, not hand-edited. Owned by `npx @better-auth/cli generate --output lib/db/schema/auth.ts`, which reads `lib/auth.ts` and **overwrites this file wholesale** on every run ("Schema was overwritten successfully"). Defines `user`, `session`, `account`, `verification` (+ relations).
 - `lib/db/schema/workflows.ts` — **hand-written** app data, kept in its own file for exactly one reason: if it lived in the same file as the generated auth tables, the next `better-auth generate` run would silently delete it.
 - `lib/db/schema/index.ts` — re-exports both. `lib/db.ts` and `lib/auth.ts` both import `* as schema from '@/lib/db/schema'` (the directory, resolved via `index.ts`) rather than either file directly, so neither has to know about the split.
-- `drizzle.config.ts` points `schema` at the glob `./lib/db/schema/*.ts` (not a single file) so `drizzle-kit push`/`generate` (migrations) picks up both.
-- After editing `lib/auth.ts` (e.g. adding another `additionalFields` entry or social provider), the loop is always: `npx @better-auth/cli generate --output lib/db/schema/auth.ts` → `npx drizzle-kit push`. Both CLIs need env vars that live in `.env.local`, which they don't auto-load (only `.env` is loaded by default) — run them as `node --env-file=.env.local node_modules/.bin/<tool> ...` or equivalent.
+- `drizzle.config.ts` points `schema` at the glob `./lib/db/schema/*.ts` (not a single file) so `drizzle-kit generate`/`migrate` picks up both.
+- After editing `lib/auth.ts` (e.g. adding another `additionalFields` entry or social provider), the loop is always: `npx @better-auth/cli generate --output lib/db/schema/auth.ts` → `npm run db:generate` → commit the new file(s) under `./drizzle` → `npm run db:migrate` (prod) / `npm run db:migrate:local` (dev). The better-auth CLI needs env vars that live in `.env.local`, which it doesn't auto-load (only `.env` is loaded by default) — run it as `node --env-file=.env.local node_modules/.bin/<tool> ...` or equivalent.
+
+### Migrations: journaled, not `push`
+
+- Schema changes go through Drizzle's journaled migrate workflow, not `drizzle-kit push`. `./drizzle/` holds the generated SQL migration files plus `meta/_journal.json`, and is committed to git — it's the single source of truth for what's been applied and in what order, tracked in a `__drizzle_migrations` table Drizzle creates in the target DB.
+- `npm run db:generate` — diffs `lib/db/schema/*.ts` against the last migration and writes a new file under `./drizzle`. Loads `.env.local` explicitly (via `node --env-file`), so it only ever runs against your local dev DB. Always run this locally, review the generated SQL, then commit it.
+- `npm run db:migrate:local` — applies pending migrations to your local dev DB (also loads `.env.local`).
+- `npm run db:migrate` — applies pending migrations wherever it's run, reading `DATABASE_URL` from the real process environment. Deliberately has **no** `.env.local` loading, since `.env.local` is a dev-only file that shouldn't exist on the production VPS — there, `DATABASE_URL` is already set in the real environment the app itself runs under. This is the command to run in prod after deploying a commit that adds new migration files.
 
 ### user (`lib/db/schema/auth.ts`, generated)
 Standard better-auth columns (`id`, `name`, `email`, `emailVerified`, `image`, timestamps) plus two `additionalFields` declared in `lib/auth.ts`:
