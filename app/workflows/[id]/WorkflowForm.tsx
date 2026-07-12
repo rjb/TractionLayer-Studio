@@ -34,6 +34,14 @@ function CopyButton({ text }: { text?: string }) {
   )
 }
 
+function Prose({ children }: { children: string }) {
+  return (
+    <div className="prose prose-invert prose-sm max-w-none prose-headings:text-slate-100 prose-a:text-blue-400">
+      <ReactMarkdown>{children}</ReactMarkdown>
+    </div>
+  )
+}
+
 function MarkdownOutput({ data }: { data: string }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
@@ -41,9 +49,7 @@ function MarkdownOutput({ data }: { data: string }) {
         <h2 className="text-lg font-semibold text-slate-100">Result</h2>
         <CopyButton text={data} />
       </div>
-      <div className="prose prose-invert prose-sm max-w-none prose-headings:text-slate-100 prose-a:text-blue-400">
-        <ReactMarkdown>{data}</ReactMarkdown>
-      </div>
+      <Prose>{data}</Prose>
     </div>
   )
 }
@@ -61,7 +67,11 @@ export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
         </nav>
 
         <h1 className="text-2xl font-bold mb-6 capitalize">{workflow.name}</h1>
-        <p className="text-slate-400 mb-6">{workflow.description}</p>
+        {workflow.long_description && (
+          <div className="mb-6">
+            <Prose>{workflow.long_description}</Prose>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-100">

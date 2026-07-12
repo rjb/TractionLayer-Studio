@@ -16,7 +16,8 @@ export type WorkflowRow = {
   id: string
   client_tag: string
   name: string
-  description: string | null
+  short_description: string | null
+  long_description: string | null
   webhook_url: string
   http_method: string
   auth_type: WorkflowAuthType

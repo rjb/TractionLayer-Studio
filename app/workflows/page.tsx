@@ -32,7 +32,7 @@ export default async function WorkflowsPage() {
               className="block bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1"
             >
               <h2 className="text-lg font-semibold mb-2">{wf.name}</h2>
-              <p className="text-sm text-slate-400">{wf.description}</p>
+              <p className="text-sm text-slate-400">{wf.short_description}</p>
             </a>
           ))}
         </div>
