@@ -97,10 +97,11 @@ Standard better-auth tables — session tokens, linked OAuth accounts (Google), 
 ### workflows (`lib/db/schema/workflows.ts`, hand-written)
 ```ts
 export const workflows = mysqlTable("workflows", {
-  id: varchar("id", { length: 255 }).primaryKey(),        // human-readable slug, e.g. "substack-to-blog"
+  id: varchar("id", { length: 255 }).primaryKey(),        // UUID, e.g. "29fa8a33-7af6-11f1-8851-b641c0ed86fc" (not a slug, despite the column being a free-form varchar)
   clientTag: varchar("client_tag", { length: 255 }).notNull().default("unassigned"),
   name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
+  shortDescription: text("short_description"),
+  longDescription: text("long_description"),
   webhookUrl: text("webhook_url").notNull(),
   httpMethod: varchar("http_method", { length: 16 }).default("POST"),
   authType: mysqlEnum("auth_type", ["none", "x-n8n-secret", "bearer"]).default("none"),

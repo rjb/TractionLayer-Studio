@@ -15,6 +15,13 @@
       "when": 1783790062528,
       "tag": "0001_absent_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1784304715061,
+      "tag": "0002_seed_youtube_transcript_workflow",
+      "breakpoints": true
     }
   ]
 }
