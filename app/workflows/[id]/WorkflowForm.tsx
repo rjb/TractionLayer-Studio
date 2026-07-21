@@ -54,6 +54,10 @@ function MarkdownOutput({ data }: { data: string }) {
   )
 }
 
+// n8n holds the connection open for the full duration of the workflow run,
+// so a hung automation would otherwise spin the button forever.
+const WORKFLOW_TIMEOUT_MS = 10 * 60 * 1000
+
 export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
   const [status, setStatus] = useState<'idle' | 'executing' | 'success'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -93,11 +97,15 @@ export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
             setFeedback(null)
             setStatus('executing')
 
+            const timeoutController = new AbortController()
+            const timeoutId = setTimeout(() => timeoutController.abort(), WORKFLOW_TIMEOUT_MS)
+
             try {
               const response = await fetch('/api/execute-workflow', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ workflowId: workflow.id, formData: fields }),
+                signal: timeoutController.signal,
               })
 
               const body = await response.json().catch(() => null)
@@ -109,11 +117,19 @@ export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
               setFeedback(result)
               setStatus(result.kind === 'markdown' ? 'success' : 'idle')
             } catch (err) {
+              const isTimeout = err instanceof DOMException && err.name === 'AbortError'
+
               setFeedback({
                 kind: 'error',
-                message: err instanceof Error ? err.message : 'Automation failed. Please try again.',
+                message: isTimeout
+                  ? 'The workflow is taking longer than expected (10 min) — it may still be running in n8n.'
+                  : err instanceof Error
+                    ? err.message
+                    : 'Automation failed. Please try again.',
               })
               setStatus('idle')
+            } finally {
+              clearTimeout(timeoutId)
             }
           }}
           className="flex flex-col gap-4"
@@ -138,7 +154,7 @@ export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
             disabled={status === 'executing'}
           >
             {status === 'executing'
-              ? 'Processing...'
+              ? 'Workflow started…'
               : workflow.action_verb || 'Run Automation'}
           </button>
         </form>
@@ -146,7 +162,10 @@ export default function WorkflowForm({ workflow }: { workflow: WorkflowRow }) {
         {feedback && (
           <div className="mt-6">
             {feedback.kind === 'markdown' ? (
-              <MarkdownOutput data={feedback.data} />
+              <>
+                <p className="mb-3 text-sm font-medium text-emerald-400">Workflow completed!</p>
+                <MarkdownOutput data={feedback.data} />
+              </>
             ) : (
               <div className="p-3 border rounded-lg bg-red-900/50 border-red-700 text-red-100">
                 {feedback.message}
